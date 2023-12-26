@@ -35,8 +35,15 @@ def load_data(data_directory):
     return trainloader, validloader, testloader, train_data.class_to_idx
 
 def create_model(architecture, hidden_units):
-    # Load a pre-trained model
-    model = getattr(models, architecture)(pretrained=True)
+    # Load a pre-trained model based on the user's choice of architecture
+    if architecture == 'vgg16':
+        model = models.vgg16(pretrained=True)
+        input_units = 25088  # VGG16 has 25088 input features for the classifier
+    elif architecture == 'densenet121':
+        model = models.densenet121(pretrained=True)
+        input_units = 1024  # Densenet121 has 1024 input features for the classifier
+    else:
+        raise ValueError(f"Unsupported architecture: {architecture}")
     
     # Freeze parameters
     for param in model.parameters():
@@ -44,7 +51,7 @@ def create_model(architecture, hidden_units):
 
     # Define a new classifier
     classifier = nn.Sequential(
-        nn.Linear(25088, hidden_units),
+        nn.Linear(input_units, hidden_units),
         nn.ReLU(),
         nn.Dropout(0.2),
         nn.Linear(hidden_units, 102),
@@ -59,44 +66,50 @@ def create_model(architecture, hidden_units):
 def train(model, trainloader, validloader, criterion, optimizer, epochs, device='cuda'):
     model.to(device)
 
-    steps = 0
     running_loss = 0
-    print_every = 20
 
     for epoch in range(epochs):
+        model.train()
+        running_loss = 0
+        
         for inputs, labels in trainloader:
-            steps += 1
             inputs, labels = inputs.to(device), labels.to(device)
-
+            
             optimizer.zero_grad()
-            outputs = model.forward(inputs)
+            
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            
             running_loss += loss.item()
-
-            if steps % print_every == 0:
-                model.eval()
-                validation_loss = 0
-                accuracy = 0
-
-                with torch.no_grad():
-                    for inputs, labels in validloader:
-                        inputs, labels = inputs.to(device), labels.to(device)
-                        outputs = model.forward(inputs)
-                        validation_loss += criterion(outputs, labels).item()
-                        ps = torch.exp(outputs)
-                        top_p, top_class = ps.topk(1, dim=1)
-                        equals = top_class == labels.view(*top_class.shape)
-                        accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
-
-                print(f"Epoch {epoch+1}/{epochs}.. "
-                      f"Training loss: {running_loss/print_every:.3f}.. "
-                      f"Validation loss: {validation_loss/len(validloader):.3f}.. "
-                      f"Validation accuracy: {accuracy/len(validloader):.3f}")
-
-                running_loss = 0
-                model.train()
+            
+            print(f"Batch Loss: {loss.item()}")
+        
+        # Calculate validation loss and accuracy
+        model.eval()
+        validation_loss = 0
+        accuracy = 0
+        
+        with torch.no_grad():
+            for inputs, labels in validloader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                
+                outputs = model(inputs)
+                validation_loss += criterion(outputs, labels).item()
+                
+                ps = torch.exp(outputs)
+                top_p, top_class = ps.topk(1, dim=1)
+                equals = top_class == labels.view(*top_class.shape)
+                accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
+                
+            print(f"Validation Loss: {validation_loss/len(validloader)}.. "
+            f"Validation Accuracy: {accuracy/len(validloader)}")
+        
+        print(f"Epoch {epoch+1}/{epochs}.. "
+            f"Training Loss: {running_loss/len(trainloader):.3f}.. "
+            f"Validation Loss: {validation_loss/len(validloader):.3f}.. "
+            f"Validation Accuracy: {accuracy/len(validloader):.3f}")
 
 def save_model_checkpoint(model, train_data, save_directory, architecture, hidden_units, epochs, optimizer):
     checkpoint = {

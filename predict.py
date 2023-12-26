@@ -88,7 +88,7 @@ def main():
 
     # Load the category names
     with open(args.category_names, 'r') as file:
-        category_to_name = json.load(file)
+        category_to_name = json.load(file, strict=False)
 
     # Make predictions
     probabilities, classes = make_prediction(args.image_path, model, args.top_k, device)
